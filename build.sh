@@ -87,7 +87,7 @@ fi
 log "Installing base packages"
 apt-get update -y
 apt-get install -y --no-install-recommends \
-  git python3 python3-venv python3-pip sqlite3 ca-certificates curl ufw sudo
+  git python3 python3-venv python3-pip sqlite3 ca-certificates curl wget unzip ufw sudo
 
 log "Deploying Daily Lighthouse from ${APP_REPO}@${APP_REF}"
 id -u "$APP_USER" &>/dev/null || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
@@ -107,6 +107,10 @@ else
   "$APP_DIR/.venv/bin/pip" install --quiet flask
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+
+# The repo hardcodes app.run(port=5000); serve the lab web app on APP_PORT (80).
+log "Pinning the web app to port ${APP_PORT}"
+sed -ri "s/port=[0-9]+/port=${APP_PORT}/" "$APP_DIR/$APP_ENTRY" || true
 
 log "Installing systemd unit for the web app"
 cat >/etc/systemd/system/daily-lighthouse.service <<EOF
@@ -311,6 +315,34 @@ if [[ "$ENABLE_SMTP" == "1" ]]; then
   postconf -e "mynetworks = 0.0.0.0/0"   # open within the isolated subnet only
   postconf -e "smtpd_banner = lighthouse.lab ESMTP"
   systemctl enable postfix
+fi
+
+###  PS04 host-audit tooling (Lynis + OpenSCAP with matching CIS content)
+#   The Ubuntu-packaged SCAP content lags behind the OS, so the distro package
+#   often lacks this release's datastream. Fetch a ComplianceAsCode build that
+#   has it and bake the matching ssg-ubuntu<ver>-ds.xml into the image.
+log "Installing Lynis + OpenSCAP and baking CIS content for this OS"
+apt-get install -y --no-install-recommends lynis openscap-scanner
+SSG_VER="${SSG_VER:-0.1.79}"
+UBU_VER="$(. /etc/os-release; echo "${VERSION_ID//./}")"   # e.g. 2204 or 2404
+SSG_DS="ssg-ubuntu${UBU_VER}-ds.xml"
+SSG_DEST="/usr/share/xml/scap/ssg/content"
+mkdir -p "$SSG_DEST"
+if [[ ! -f "$SSG_DEST/$SSG_DS" ]]; then
+  tmpd="$(mktemp -d)"
+  if wget -q -O "$tmpd/ssg.zip" \
+       "https://github.com/ComplianceAsCode/content/releases/download/v${SSG_VER}/scap-security-guide-${SSG_VER}.zip"; then
+    unzip -q -o "$tmpd/ssg.zip" -d "$tmpd"
+    if [[ -f "$tmpd/scap-security-guide-${SSG_VER}/$SSG_DS" ]]; then
+      cp "$tmpd/scap-security-guide-${SSG_VER}/$SSG_DS" "$SSG_DEST/"
+      log "Baked $SSG_DS (SSG ${SSG_VER}) for PS04"
+    else
+      log "WARNING: $SSG_DS not found in SSG ${SSG_VER}. Set SSG_VER to a release that ships it."
+    fi
+  else
+    log "WARNING: could not download SSG ${SSG_VER}; OpenSCAP content not baked."
+  fi
+  rm -rf "$tmpd"
 fi
 
 ###  Host firewall (defence-in-depth; the SG is the real boundary)
