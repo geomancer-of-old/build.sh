@@ -9,8 +9,9 @@
 #   that allows 0.0.0.0/0. It is meant to run only inside an isolated lab
 #   subnet reached through the WireGuard gateway (see the AWS setup guide).
 #
-#   Base image MUST be Ubuntu 22.04 (Jammy) so PS04's OpenSCAP CIS content
-#   (ssg-ubuntu2204) matches the host. The script warns if it isn't.
+#   Base image should be an Ubuntu LTS (22.04 or 24.04). PS04's OpenSCAP CIS
+#   content file must match the OS version: ssg-ubuntu2204 for 22.04, or
+#   ssg-ubuntu2404 for 24.04. The script warns if it's neither.
 #
 set -euo pipefail
 
@@ -48,10 +49,11 @@ log() { printf '\n\033[1;36m[zaio.vuln.vm]\033[0m %s\n' "$*"; }
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo." >&2; exit 1; fi
 export DEBIAN_FRONTEND=noninteractive
 
-# Warn (don't block) if the base OS isn't Ubuntu 22.04 — PS04 depends on it.
-if ! grep -q 'VERSION_ID="22.04"' /etc/os-release 2>/dev/null; then
-  log "WARNING: base image is not Ubuntu 22.04. PS04's OpenSCAP CIS profile"
-  log "         (ssg-ubuntu2204) expects 22.04. Continue only if you know why."
+# Warn (don't block) if the base OS isn't an Ubuntu LTS PS04 has content for.
+if ! grep -qE 'VERSION_ID="(22.04|24.04)"' /etc/os-release 2>/dev/null; then
+  log "WARNING: base image is not Ubuntu 22.04 or 24.04. PS04's OpenSCAP CIS"
+  log "         content (ssg-ubuntu2204 / ssg-ubuntu2404) must match the OS."
+  log "         Continue only if you know the matching SCAP content exists."
 fi
 
 # Prompts unless the value is already set in the environment.
