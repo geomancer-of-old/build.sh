@@ -271,8 +271,14 @@ if [[ "$ENABLE_WEAK_SSH" == "1" ]]; then
   apt-get install -y --no-install-recommends openssh-server
   sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
   sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  # Ubuntu cloud images ship /etc/ssh/sshd_config.d/60-cloudimg-settings.conf with
+  # PasswordAuthentication no, which is read BEFORE our drop-in (first value wins)
+  # and silently disables the weak-password vuln. Neutralise it in every drop-in.
+  sed -ri 's/^#?PasswordAuthentication[[:space:]]+no/PasswordAuthentication yes/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
   mkdir -p /etc/ssh/sshd_config.d
   echo "PasswordAuthentication yes" >/etc/ssh/sshd_config.d/99-pm02.conf
+  # No internet on the target subnet, so skip reverse-DNS on connect (else ~30s SSH hang).
+  echo "UseDNS no" >>/etc/ssh/sshd_config.d/99-pm02.conf
   systemctl enable ssh
 fi
 
